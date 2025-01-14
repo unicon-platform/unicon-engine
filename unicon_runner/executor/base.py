@@ -125,7 +125,9 @@ class Executor(ABC):
                 slurm_script_path.write_text(slurm_script)
                 slurm_script_path.chmod(slurm_script_path.stat().st_mode | stat.S_IEXEC)
 
-                cmd = ["srun", *context.slurm_options, str(slurm_script_path)]
+                # NOTE: `--quiet` flag is used to suppress informational messages from `srun` being logged into stderr
+                # Errors will NOT be suppressed
+                cmd = ["srun", "--quiet", *context.slurm_options, str(slurm_script_path)]
                 env_vars = {}
             else:
                 cmd, env_vars = self._cmd(workspace)

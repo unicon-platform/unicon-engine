@@ -1,26 +1,23 @@
-import asyncio
+import logging
+import stat
 from pathlib import Path
 
-from jinja2 import Template
-
-from unicon_runner.constants import CONTY_PATH
-from unicon_runner.executor.base import JINJA_ENV, ExecutorResult
+from unicon_runner.constants import CONTY_DOWNLOAD_URL, CONTY_PATH
 from unicon_runner.executor.unsafe import UnsafeExecutor
+from unicon_runner.helpers import download_file
+
+logger = logging.getLogger("unicon_runner")
 
 
 class SandboxExecutor(UnsafeExecutor):
-    on_slurm = True
-
-    # Mounting sometimes fails if we try to spawn multiple sandboxes on xlog.
-    lock = asyncio.Lock()
-
-    RUN_SCRIPT_TEMPLATE: Template = JINJA_ENV.get_template("run_sandbox.sh.jinja")
-
     def __init__(self, root_dir: Path):
-        if CONTY_PATH is None or not Path(CONTY_PATH).exists():
-            raise RuntimeError(
-                "Conty binary not found! Please verify the CONTY_PATH environment variable."
-            )
+        if not (conty_bin := Path(CONTY_PATH)).exists():
+            logger.info("`conty` binary not found, downloading...")
+            if download_file(CONTY_DOWNLOAD_URL, conty_bin, overwrite=True) is False:
+                raise RuntimeError(f"Failed to download `conty` binary from {CONTY_DOWNLOAD_URL}")
+            # `chmod +x` the downloaded binary
+            conty_bin.chmod(conty_bin.stat().st_mode | stat.S_IEXEC)
+
         super().__init__(root_dir)
 
     def _cmd(self, cwd: Path) -> tuple[list[str], dict[str, str]]:
@@ -51,21 +48,7 @@ class SandboxExecutor(UnsafeExecutor):
         ], {
             # Conty specific environment variables
             "SANDBOX": "1", "SANDBOX_LEVEL": "1", "QUIET_MODE": "1",
-            # NOTE: `conty` installs NVIDIA drivers in the sandbox, so we need to disable it
-            "NVIDIA_HANDLER": "-1",
             # NOTE: We need to unset VIRTUAL_ENV to prevent uv from using the wrong base python interpreter
             "VIRTUAL_ENV": "''",
         }
         # fmt: off
-
-    async def _collect(self, proc: asyncio.subprocess.Process) -> ExecutorResult:
-        stdout, stderr = await proc.communicate()
-
-        exit_code_file = self._root_dir / "exit_code"
-        if not exit_code_file.exists():
-            exit_code = 1
-        else:
-            with open(exit_code_file) as f:
-                exit_code = int(f.read())
-
-        return ExecutorResult(exit_code=exit_code, stdout=stdout.decode(), stderr=stderr.decode())

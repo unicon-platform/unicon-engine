@@ -30,7 +30,8 @@ async def _run_job_async(executor: Executor, job: Job) -> JobResult:
 def _run_job(executor: Executor, job: Job) -> JobResult:
     compatible, reason = executor.is_compatible(job.context)
     if not compatible:
-        return JobResult(success=False, error=reason, results=[], **job.model_extra)
+        _tracking_fields = job.model_extra or {}
+        return JobResult(success=False, error=reason, results=[], **_tracking_fields)
     return asyncio.run(_run_job_async(executor, job))
 
 
